@@ -1,0 +1,861 @@
+const SCALE = 10000000; // precision scale factor for integer coords
+const ERROR = 0.001
+const ANGLE = 3.141/24;
+
+let multi_polygons = []
+// TODO: remove types
+class MultiPolygon {
+  static next_id = 1;
+  constructor(points, type, parent) {
+    // points is an array of raw vectors
+    this.id = MultiPolygon.next_id++;
+    this.parent = parent;
+    this.type = parent ? parent.type : type;
+    
+    this.ancestor_ids = [this.id];
+    if(parent) {
+      this.ancestor_ids = [...parent.ancestor_ids, this.id];
+      this.origin = parent.origin || parent;
+    } else {
+      this.origin = null;
+      this.children = [];
+    }
+
+    if(this.is_contour_array(points)) {
+      this.contours = this.find_contours(points);
+    } else {
+      // console.log("MultiPolygon: points is not a contour array, assuming raw array");
+      this.contours = [this.order(points)];
+    }
+
+    this.segments = [];
+    this.edges = [];
+
+    for(let i = 0; i < this.contours.length; i++) {
+      let points = this.contours[i];
+      this.segments[i] = this.find_segments(points, i);
+      this.edges[i] = this.find_edges(this.segments[i]);
+    }
+
+    this.outer = this.contours[0];
+    multi_polygons.push(this);
+  }
+
+  is_raw_array(points) {
+    return Array.isArray(points[0]) && points[0].length === 2
+  }
+
+  is_contour_array(points) {
+    return Array.isArray(points[0]) && points[0].length > 2
+  }
+
+  count() {
+    return this.outer.length;
+  }
+
+  order(points, clockwise = true) {
+    let n = points.length;
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n; 
+      sum += (points[j].x - points[i].x) * (points[j].y + points[i].y);
+    }
+
+    const is_clockwise = sum < 0;
+    if (is_clockwise !== clockwise) {
+      points.reverse();
+    }
+
+    return points
+  }
+
+  to_vectors(points) {
+    if(this.is_raw_array(points)) {
+      let new_points = [];
+      for(let v of points){
+        new_points.push(createVector(v[0], v[1]));
+      }
+      return new_points;
+    }
+
+    return points
+  }
+
+  to_a(points){
+    let arr = [];
+    for(let v of points){
+      arr.push([v.x, v.y]);
+    }
+    return arr;
+  }
+
+  to_clipper_paths() {
+    let results = [];
+    for(let contour of this.contours) {
+      if (contour.length < 3) continue; // skip degenerate contours
+      let path = []
+      for(let point of contour) {
+        let p = { X: point.x * SCALE, Y: point.y * SCALE }
+        path.push(p);
+      }
+      results.push(path);
+    }
+
+    return results;
+  }
+
+  simplify(factor){
+    let points = simplify(this.outer, factor);
+    if(points.length < 3) { return this; }
+    return new MultiPolygon([points], this.type, this.parent);
+  }
+
+  is_convex(){
+    if(this.outer.length < 3) { return false; }
+    let sign = 0;
+    for(let i = 0; i < this.outer.length; i++){
+      let a = this.outer[i];
+      let b = this.outer[(i + 1) % this.outer.length];
+      let c = this.outer[(i + 2) % this.outer.length];
+
+      let cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+      if(cross === 0) continue; // collinear points
+      if(sign === 0) {
+        sign = Math.sign(cross);
+      } else if(Math.sign(cross) !== sign) {
+        return false; // found a concave angle
+      }
+    }
+    return true;
+  }
+
+  is_concave(){ return !this.is_convex() }
+
+  has_same_points(other) {
+    if (this.count() !== other.count()) return false;
+    if (this.bounds_centroid().dist(other.bounds_centroid()) > 1e-6) return false;
+    
+    for (let i = 0; i < this.outer.length; i++) {
+      let a = this.outer[i];
+      let b = other.outer[i];
+      if (a.x !== b.x || a.y !== b.y) { return false }
+    }
+
+    console.warn("Overlapping polygons");
+    return true;
+  }
+
+  // AREA and other geometry methods
+  max_diameter(points = this.outer) {
+    let max_dist = 0;
+    for (let i = 0; i < points.length; i++) {
+      for (let j = i + 1; j < points.length; j++) {
+        let dx = points[i].x - points[j].x;
+        let dy = points[i].y - points[j].y;
+        let distSq = dx * dx + dy * dy;
+        if (distSq > max_dist) {
+          max_dist = distSq;
+        }
+      }
+    }
+    return Math.sqrt(max_dist);
+  }
+
+  min_diameter(points = this.outer) {
+    let minWidth = Infinity;
+  
+    for (let i = 0; i < points.length; i++) {
+      let a = points[i];
+      let b = points[(i + 1) % points.length];
+  
+      let edge = {x: b.x - a.x, y: b.y - a.y};
+      let length = Math.sqrt(edge.x ** 2 + edge.y ** 2);
+      if (length === 0) continue;
+  
+      // Normalize perpendicular vector
+      let normal = {x: -edge.y / length, y: edge.x / length};
+  
+      // Project all points onto this normal
+      let minProj = Infinity;
+      let maxProj = -Infinity;
+      for (let p of points) {
+        let projection = p.x * normal.x + p.y * normal.y;
+        minProj = Math.min(minProj, projection);
+        maxProj = Math.max(maxProj, projection);
+      }
+  
+      let width = maxProj - minProj;
+      minWidth = Math.min(minWidth, width);
+    }
+  
+    return minWidth;
+  }
+
+  perimeter() {
+    let total = 0;
+    let n = this.outer.length;
+    for (let i = 0; i < n; i++) {
+      let p1 = this.outer[i];
+      let p2 = this.outer[(i + 1) % n];
+      total += p1.dist(p2);
+    }
+    return total;
+  }
+
+  area(signed = false) {
+    return area(this.outer, signed);
+  }
+
+  is_zero_area() {
+    let A = 0;
+    for(let contour of this.contours) {
+      A += area(contour, true);
+    }
+    return Math.abs(A) < 1e-6;
+  }
+
+  centroid(){
+    let n = this.count();
+    if (n === 0) return createVector(0, 0);
+    
+    let x = 0, y = 0;
+    for(let v of this.outer){
+      x += v.x;
+      y += v.y;
+    }
+    return createVector(x / n, y / n);
+  }
+
+  bounds(){
+    if (this.count() === 0) return [0, 0, 0, 0];
+    
+    let minX = this.outer[0].x;
+    let minY = this.outer[0].y;
+    let maxX = this.outer[0].x;
+    let maxY = this.outer[0].y;
+
+    for(let v of this.outer){
+      minX = Math.min(minX, v.x);
+      minY = Math.min(minY, v.y);
+      maxX = Math.max(maxX, v.x);
+      maxY = Math.max(maxY, v.y);
+    }
+    return [minX, minY, maxX, maxY];
+  }
+
+  bounds_centroid(){
+    const [minX, minY, maxX, maxY] = this.bounds();
+    return createVector((minX + maxX) / 2, (minY + maxY) / 2);
+  }
+
+  bounds_area() {
+    const [minX, minY, maxX, maxY] = this.bounds();
+    return (maxX - minX) * (maxY - minY);
+  }
+
+  bounds_contains(point) {
+    const [minX, minY, maxX, maxY] = this.bounds();
+    return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY;
+  }
+
+  intersects_bounds(other){
+    const [minX, minY, maxX, maxY] = this.bounds();
+    const [otherMinX, otherMinY, otherMaxX, otherMaxY] = other.bounds();
+
+    return !(maxX < otherMinX || minX > otherMaxX || maxY < otherMinY || minY > otherMaxY);
+  }
+
+  // EDGES AND SEGMENTS
+  find_contours(points){
+    if(!Array.isArray(points[0])){
+      return [points];
+    }
+
+    let contours = [];
+    for(let i = 0; i < points.length; i++){
+      let contour = points[i];
+
+      if(contour.length < 3) continue; // skip degenerate contours
+      contour = this.to_vectors(contour);
+      let clockwise = i == 0
+      contour = this.order(contour, clockwise);
+      contours.push(contour);
+    }
+
+    return contours
+  }
+
+  find_segments(points, contour_id = 0) {
+    let segments = [];
+    let n = points.length;
+    let previous;
+    for (let i = 0; i < n - 1; i++) {
+      const start = points[i];
+      const end = points[i + 1];
+
+      const segment = new Segment(start, end, i, contour_id);
+      segments.push(segment);
+
+      if(previous) { 
+        previous.next = segment; 
+        segment.previous = previous;
+      }
+      previous = segment;
+    }
+
+    // Create the final segment connecting the last vertex to the first
+    const start = points[n - 1];
+    const end = points[0];  
+    const segment = new Segment(start, end, n, contour_id);
+    segments.push(segment);
+    const first = segments[0];
+
+    first.previous = segment;
+    segment.next = first;
+    
+    if(previous){
+      previous.next = segment;
+      segment.previous = previous;
+    }
+
+    return segments;
+  }
+
+  find_edges(segments) {
+    let edges = [];
+    let current = [segments[0]];
+
+    for(let i = 1; i < segments.length; i++){
+      const segment = segments[i];
+      const next_segment = segment.next.to_v();
+      let angle = segment.to_v().angleBetween(next_segment);
+
+      if(Math.abs(angle) < ANGLE){
+        current.push(segment);
+      } else {
+        edges.push(current);
+        current = [segment];
+      }
+    }
+
+    return edges;
+  }
+
+  find_longest_edge() {
+    let longest;
+    let previous;
+    let max_length = 0;
+    for(let edge of this.edges[0]){
+      let length = 0
+      for(let segment of edge){
+        length += segment.length();
+      }
+      if(length > max_length){
+        max_length = length;
+        previous = longest;
+        longest = edge;
+      }
+    }
+    return longest 
+  }
+
+  find_second_longest_edge() {
+    let longest;
+    let previous;
+    let max_length = 0;
+    for(let edge of this.edges[0]){
+      let length = 0
+      for(let segment of edge){
+        length += segment.length();
+      }
+      if(length > max_length){
+        max_length = length;
+        previous = longest;
+        longest = edge;
+      }
+    }
+    return previous;
+  }
+
+  find_shortest_edge() {
+    let shortest;
+    let min_length = Infinity;
+    for(let edge of this.edges[0]){
+      let length = 0
+      for(let segment of edge){
+        length += segment.length();
+      }
+      if(length < min_length && length > 0){
+        min_length = length;
+        shortest = edge;
+      }
+    }
+    return shortest[0];
+  }
+
+  // Geometry Tests
+  contains(point) {
+    let inside = contains(point, this.outer);
+    if (!inside) { return false; }
+    
+    for(let i = 1; i < this.contours.length; i++) {
+      let inner = this.contours[i];
+      let in_a_hole = contains(point, inner);
+      if (in_a_hole) { return false }
+    }
+
+    return true;    
+  }
+
+  contains_with_tolerance(point, epsilon = 1e-6) {
+    if (this.contains(point)) {
+      return true;
+    }
+  
+    for (let segment of this.segments[0]) {
+      if (segment.distance(point) < epsilon) {
+        return true;
+      }
+    }
+  
+    for (let i = 1; i < this.contours.length; i++) {
+      let hole = this.contours[i];
+      if (contains(point, hole)) {
+        return false;
+      }
+  
+      for (let segment of this.segments[i]) {
+        if (segment.distance(point) < epsilon) {
+          return false;
+        }
+      }
+    }
+  
+    return false;
+  }
+  
+
+  contains_polygon(other, tolerance = 0, debug = false) {
+    for(let other_point of other.outer) {
+      let v = createVector(other_point.x, other_point.y);
+      if (!tolerance > 0 && !this.contains(v)) {
+        if(debug) { console.log(`MultiPolygon ${this.id} strictly does not contain point ${other_point}`); }
+        return false;
+      } 
+
+      if (!this.contains_with_tolerance(v, tolerance)) {
+        if(debug) { console.log(`MultiPolygon ${this.id} does not contain point ${other_point}`); }
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Adjacency
+  adjacent(other) {
+    for (let segment of this.segments[0]) {
+      for (let other_segment of other.segments[0]) {
+        if(segment.adjacent(other_segment)) {
+          return true;
+        }
+      }
+    }
+    return false
+  }
+
+  // BOOLEAN operations using Clipper
+  intersection(other){
+    return clipper(this, other, 'intersection');
+  }
+
+  xor(other){
+    return clipper(this, other, 'xor');
+  }
+
+  union(other){
+    return clipper(this, other, 'union');
+  }
+
+  difference(other){
+    return clipper(this, other, 'difference');
+  }
+
+  first_difference(other){
+    let result = this.difference(other);
+    if(result.length > 0) { return result[0]; }
+  }
+
+  first_difference_or_original(other){
+    let result = this.difference(other);
+    if(!result || result.length === 0) { return this; }
+    if(result.length > 0) { return result[0]; }
+  }
+
+  first_intersection(other){
+    let result = this.intersection(other);
+    if(result.length > 0) { return result[0]; }
+  }
+
+  first_intersection_or_original(other){
+    let result = this.intersection(other);
+    if(!result || result.length === 0) { return this; }
+    if(result.length > 0) { return result[0]; }
+  }
+
+  first_xor(other){
+    let result = this.xor(other);
+    if(result.length > 0) { return result[0]; }
+  }
+
+  first_xor_or_original(other){
+    let result = this.xor(other);
+    if(!result || result.length === 0) { return this; }
+    if(result.length > 0) { return result[0]; }
+  }
+
+  first_union(other){
+    let result = this.union(other);
+    if(result.length > 0) { return result[0]; }
+  }
+
+  first_union_or_original(other){
+    let result = this.union(other);
+    if(!result || result.length === 0) { return this; }
+    if(result.length > 0) { return result[0]; }
+  }
+
+
+
+  // MUTATION
+  scale(sf){
+    if(sf <= 0) { return [this]; }
+    let c = this.bounds_centroid();
+    let scaled_points = [];
+    for(let p of this.outer){
+      let dir = p5.Vector.sub(p, c).mult(sf);
+      let scaled = c.copy().add(dir);
+      
+      scaled_points.push(scaled);
+    }
+    return new MultiPolygon(scaled_points, this.type, this.parent);
+  }
+
+  // SPLITTING
+  intersect_polyline(polyline) {
+    let junctures = [];
+    const polyline_bounds = polyline.bounds();
+    for (let polyline_segment of polyline.segments) {
+      for(let contour_segments of this.segments){
+        for (let polygon_segment of contour_segments) {
+          if (!polygon_segment.intersects(polyline_bounds)) { 
+            continue 
+          };
+    
+          const points = polyline_segment.intersection(polygon_segment, true); 
+    
+          if (points.length < 1) { 
+            continue 
+          }
+    
+          for (let point of points) {
+            let juncture = new Juncture(point, polyline_segment, polygon_segment);
+            
+            let duplicate = false;
+            for(let other of junctures) {
+              let dx = Math.abs(other.point.x - juncture.point.x);
+              let dy = Math.abs(other.point.y - juncture.point.y);
+              if (dx <= ERROR && dy <= ERROR) {
+                duplicate = true;
+              }
+            }
+            if (duplicate) continue;
+            
+            polygon_segment.junctures.push(juncture);
+            polyline_segment.junctures.push(juncture);
+            junctures.push(juncture);
+
+          }
+        }
+      }
+    }
+
+    let sorted_junctures = []
+    for(let polyline_segment of polyline.segments) { 
+      polyline_segment.sort();
+      sorted_junctures.push(...polyline_segment.junctures);
+    }
+    for (let contour_segments of this.segments) {
+      for (let polygon_segment of contour_segments) {
+        polygon_segment.sort(); 
+      }
+    }
+    
+    return sorted_junctures;
+  }
+  
+  
+  split(input_polyline) {
+    // Duplicate the polyline to avoid double counting junctures
+    let polyline = new Polyline(input_polyline.points);
+    let junctures = this.intersect_polyline(polyline);
+    if (junctures.length === 0) return [this];
+
+    let pieces = this.split_into_pieces(polyline, junctures);
+    let new_polygons = this.process_split_pieces(pieces, junctures);
+    
+    return new_polygons;
+  }
+
+  split_into_pieces(polyline, junctures) {
+    let first = polyline.first();
+    let pieces = [];
+    let current = first;
+    let next = { visits: 1};
+    if(current == undefined) { return [] }
+    // Traverse the junctures
+    for(let i = 0; i < junctures.length * 2; i++) {
+      current.increment() // not used
+      let piece = [];
+      pieces.push(piece);
+
+      let next_juncture = this.walk(current, piece)
+      next = next_juncture;
+
+      while(next_juncture && next_juncture !== current && next_juncture.visits < 1000) { 
+        // this is a bug, we need to find the direction correctly.
+        let direction = i % 2 === 1 ? 'with' : 'against';
+        next_juncture = polyline.walk(next_juncture, piece, direction) 
+        if(next_juncture !== current ) {
+          next_juncture = this.walk(next_juncture, piece);
+        }
+      }
+
+      if(next == first) { break; }
+      if(next === undefined) {  break; }
+
+      current = next;
+    }
+    pieces = pieces.filter(p => p.length > 0);
+    return pieces;
+  }
+
+  process_split_pieces(pieces, junctures){
+    // console.log("Pieces after split: ", pieces);
+    if(!pieces || pieces.length === 0) { return [this]; }
+
+    // Now add back in any holes which weren't intersected
+    let junctures_counter = [];
+    for(let i = 0; i < this.contours.length; i++) {
+      junctures_counter[i] = 0;
+    }
+
+    for(let juncture of junctures) {
+      let contour_id = juncture.contour_id;
+      junctures_counter[contour_id]++;
+    }
+
+    let missing_contours = [];
+    for(let i = 0; i < this.contours.length; i++) {
+      if(junctures_counter[i] === 0) {
+        missing_contours.push(new Polygon(this.contours[i]));
+      }
+    }
+
+    let new_polygons = [];
+    for(let piece of pieces) {
+      if(piece.length < 3) { continue };
+      let new_polygon = new MultiPolygon([piece], this.type, this);
+      let final = [piece]
+      for(let missing of missing_contours) {
+        let centroid = missing.centroid();
+        if(new_polygon.contains(centroid)) {
+          final.push(missing.points)
+        } 
+      }
+      let final_polygon = new MultiPolygon(final, this.type, this);
+      new_polygons.push(final_polygon);
+    }
+    return new_polygons;
+
+  }
+  // traverse the junctures clockwise or anti-clockwise depending on the already sorted direction
+  walk(juncture, piece, direction) {
+    if(!juncture) { return; }
+    let next = juncture.polygon;
+
+    if (next.junctures.length > 1) {
+      return this.walk_to_next_juncture(next, juncture, piece, direction);
+    }
+
+    return this.walk_to_end_of_edge(next, juncture, piece);
+  }
+
+  walk_to_next_juncture(segment, juncture, piece, direction) {
+    if(!segment) { return  }
+    const last = segment.junctures[segment.junctures.length - 1];
+    if (last !== juncture) {
+      let idx = segment.junctures.findIndex(j => j === juncture);
+      let next_juncture = segment.junctures[idx + 1];
+      piece.push(next_juncture.point);
+      next_juncture.increment();
+      // console.log("Multiple on contour. Contour: ", next_juncture.contour_id, "visits:", next_juncture.visits);
+      return next_juncture;
+    }
+  }
+
+  // traverse multiple segments until you meet the next juncture
+  walk_to_end_of_edge(segment, juncture, piece) {
+    let counter = 0;
+    while (segment && counter < 1000) {
+      counter++;
+      piece.push(segment.end);  
+      segment = segment.next;  
+
+      if (!segment) { return juncture;}  
+
+      if (segment.junctures.length > 0) {
+        const next_juncture = segment.junctures[0];
+        next_juncture.increment();  
+        piece.push(next_juncture.point);  
+        return next_juncture;  
+      }
+    }
+
+    return juncture;  
+  }
+
+
+  // DRAWING METHODS
+
+  hatch(spacing, direction = 'horizontal') {
+    let hatching = new Hatching(this, spacing);
+    hatching.hatch(direction);
+    hatching.draw();
+  }
+
+  draw(){
+    push();
+      beginShape();
+      for(let i = 0; i < this.outer.length; i++){
+        let v = this.outer[i];
+
+        vertex(v.x, v.y);
+      }
+      for(let i = 1; i < this.contours.length; i++){
+        beginContour()
+        for(let v of this.contours[i]){
+          vertex(v.x, v.y);
+        }
+        endContour();
+      }
+      endShape(CLOSE);
+    pop();
+  }
+}
+
+function build_intersection_groups(polygons) {
+  const n = polygons.length;
+  const groups = [];
+  const visited = new Array(n).fill(false);
+
+  function dfs(i, group) {
+    visited[i] = true;
+    group.push(i);
+
+    for (let j = 0; j < n; j++) {
+      if (!visited[j]) {
+        const a = polygons[i];
+        const b = polygons[j];
+
+        // Cheap bounding box test first
+        if (!a.intersects_bounds(b)) continue;
+
+        // Use ClipperJS intersection — true overlap if result is non-empty
+        const result = a.intersection(b);
+        if (result && result.length > 0) {
+          dfs(j, group);
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < n; i++) {
+    if (!visited[i]) {
+      const group = [];
+      dfs(i, group);
+      groups.push(group);
+    }
+  }
+
+  return groups;
+}
+
+
+
+function multi_disjoint(polygons) {
+  const n = polygons.length;
+  const pieces = [];
+  const piece_cache = new Map();
+
+  const total = (1n << BigInt(n)) - 1n;
+  console.log("Polygons:", n, "Iterations:", total.toString());
+
+  for (let i = 1n; i <= total; i++) {
+    const k = lowest_index_bigint(i);  // needs to work with BigInts
+    const j = i & ~(1n << BigInt(k));
+
+    let cached_fragments = j === 0n ? [polygons[k]] : piece_cache.get(j.toString());
+    if (!cached_fragments || cached_fragments.length === 0) continue;
+
+    let new_fragments = [];
+    const polygon = polygons[k];
+
+    for (let fragment of cached_fragments) {
+      if (!polygon.intersects_bounds(fragment)) continue;
+      const result = fragment.intersection(polygon);
+      if (result) new_fragments.push(...result);
+    }
+
+    if (new_fragments.length > 0) {
+      piece_cache.set(i.toString(), new_fragments);
+
+      let excluded = [];
+      for (let m = 0; m < n; m++) {
+        if ((i & (1n << BigInt(m))) === 0n) excluded.push(polygons[m]);
+      }
+
+      for (let piece of excluded) {
+        const differences = [];
+        for (let fragment of new_fragments) {
+          if (!piece.intersects_bounds(fragment)) {
+            differences.push(fragment);
+            continue;
+          }
+          const diff = fragment.difference(piece);
+          if (diff) differences.push(...diff);
+        }
+        new_fragments = differences;
+      }
+
+      let final = new_fragments.filter(f => !f.is_zero_area?.());
+      pieces.push(...final);
+    }
+  }
+
+  return pieces;
+}
+
+function lowest_index_bigint(mask) {
+  let i = 0;
+  while (((mask >> BigInt(i)) & 1n) === 0n) i++;
+  return i;
+}
+
+
+
+function lowest_index(mask) {
+  let i = 0;
+  while (((mask >> BigInt(i)) & 1n) === 0n) i++;
+  return i;
+}
+
