@@ -83,6 +83,23 @@ class Oblong {
     return new Oblong(x, y, width, height);
   }
 
+  polygon() {
+    if (!this._polygon) {
+      this._polygon = new MultiPolygon([
+        createVector(this.left, this.top),
+        createVector(this.right, this.top),
+        createVector(this.right, this.bottom),
+        createVector(this.left, this.bottom),
+      ]);
+    }
+  
+    return this._polygon;
+  }
+
+  hatch(spacing, direction, dash, gap) {
+    this.polygon().hatch(spacing, direction, dash, gap);
+  }
+
   draw() {
     rect(this.x, this.y, this.width, this.height);
   }

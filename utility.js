@@ -2,8 +2,12 @@
 
 function keyPressed() {
   if(key == "s" || key == "S") {
-    saveCanvas("treemap_custom_" + palette_name + "_" + seed, "png");
+    saveCanvas("treemap_custom_" + palette_name + "_" + SEED, "png");
     return;
+  }
+
+  if(key == "h" || key == "H") {
+    draw_hatched();
   }
 
   if (key === "-" || key === "=") {
@@ -61,7 +65,7 @@ function initialise_palette(){
   // frameRate(10);
 
   stroke(palette.pen);
-  strokeWeight(2)
+  strokeWeight(5)
   noFill();
 }
 
@@ -76,4 +80,17 @@ function change_palette(key) {
   redraw();
 }
 
+function set_params(){
+  const params = new URLSearchParams(window.location.search);
+
+  SEED = params.get("seed");
+  SEED = SEED == null ? floor(random(1000000)) : int(SEED);
+  REWIRING_PROBABILITY = params.get("rewiring");
+  REWIRING_PROBABILITY = REWIRING_PROBABILITY == null ? 0 : float(REWIRING_PROBABILITY);
+
+  randomSeed(SEED);
+  noiseSeed(SEED);
+  console.log("Seed = " + SEED);
+  console.log("Rewiring Probability = " + REWIRING_PROBABILITY);
+}
 

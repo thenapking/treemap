@@ -1,8 +1,4 @@
 function connect_agents() {
-  REWIRING_PROBABILITY = random() < 0.5 ? 0 : 4;
-  console.log("Rewiring probability: " + REWIRING_PROBABILITY);
-
-
   build_neighbours();
 
   if( REWIRING_PROBABILITY > 0) {

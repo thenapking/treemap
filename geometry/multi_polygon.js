@@ -727,8 +727,8 @@ class MultiPolygon {
 
   // DRAWING METHODS
 
-  hatch(spacing, direction = 'horizontal') {
-    let hatching = new Hatching(this, spacing);
+  hatch(spacing, direction = 'horizontal', dash = 0, gap = 0){ 
+    let hatching = new Hatching(this, spacing, dash, gap);
     hatching.hatch(direction);
     hatching.draw();
   }

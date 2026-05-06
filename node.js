@@ -26,7 +26,7 @@ class Node {
     let placed = this.place(children);
 
     if (!placed) {
-      console.log("Failed to place children at depth " + this.depth);
+      if(debug) { console.log("Failed to place children at depth " + this.depth); }
     
       return;
     }
