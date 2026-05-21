@@ -1,5 +1,3 @@
-// TODO redefine area to expected area
-// Then link area to oblong once assigned
 class Node {
   constructor(oblong, depth = 0, parent = null) {
     this.oblong = oblong;

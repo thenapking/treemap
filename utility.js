@@ -57,7 +57,7 @@ function nearest_agent(v){
 function initialise_palette(){
   palette_names = Object.keys(palettes);
   palette_name = random(palette_names);
-  palette_name = "More Mil2"
+  palette_name = "Basic"
   palette = palettes[palette_name];
   palette.colours = shuffle(palette.colours);
   console.log("Palette: " + palette_name);
@@ -65,7 +65,6 @@ function initialise_palette(){
   // frameRate(10);
 
   stroke(palette.pen);
-  strokeWeight(5)
   noFill();
 }
 
@@ -86,11 +85,20 @@ function set_params(){
   SEED = params.get("seed");
   SEED = SEED == null ? floor(random(1000000)) : int(SEED);
   REWIRING_PROBABILITY = params.get("rewiring");
-  REWIRING_PROBABILITY = REWIRING_PROBABILITY == null ? 0 : float(REWIRING_PROBABILITY);
-
+  REWIRING_PROBABILITY = REWIRING_PROBABILITY == null ? random([0,4]) : float(REWIRING_PROBABILITY);
   randomSeed(SEED);
   noiseSeed(SEED);
+
+  let max_side_ratio = REWIRING_PROBABILITY > 0 ? 0.1 : 0.2;
+  let min_side_ratio = REWIRING_PROBABILITY > 0 ? 0.005 : 0.0075;
+  
+  MAX_SIDE = random(0.075, max_side_ratio) * H;
+  MIN_SIDE = random(min_side_ratio, 0.0075) * W;
   console.log("Seed = " + SEED);
   console.log("Rewiring Probability = " + REWIRING_PROBABILITY);
+  // console.log("Max Size = " + MAX_SIDE);
+
+  
+
 }
 

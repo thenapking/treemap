@@ -1,6 +1,6 @@
 const DPI = 96;
-const Wi = 12;
-const Hi = 20;
+const Wi = 9.69;
+const Hi = 16.54;
 const BWi = 1;
 
 const W = Wi * DPI;
@@ -9,14 +9,14 @@ const BW = BWi * DPI;
 const FW = W + BW * 2;
 const FH = H + BW * 2;
 
-const MIN_SIDE = 5;
-const MAX_SIDE = 275;
+let MIN_SIDE = W * 0.005;
+let MAX_SIDE = H * 0.1;
 const MAX_AREA = 12500000;
 const MAX_DEPTH = 50;
 const MIN_ASPECT = 0.1; 
 
 
-let REWIRING_PROBABILITY = 0;
+let REWIRING_PROBABILITY ;
 let SEED = 0;
 const TOTAL_ACTIVATIONS = 30;
 const MAX_INDEX = 50; // used to constrain weight for stratification
@@ -40,6 +40,10 @@ let t = 0;
 
 function setup() {
   createCanvas(FW, FH);
+
+  pixelDensity(4);
+  strokeWeight(2)
+  frameRate(15);
 
   set_params();
   initialise_palette();
@@ -114,11 +118,3 @@ function create_agent(node) {
   agents.push(agent);
   total_agent_weight += agent.weight;
 }
-
-
-
-
-
-
-
-
