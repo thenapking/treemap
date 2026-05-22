@@ -24,6 +24,9 @@ const MAX_INDEX = 50; // used to constrain weight for stratification
 const SMALLEST_CASCADE = 35;
 const WEALTHY_THRESHOLD = 0.025;
 
+const FADE_TIME = 25;
+const UPDATE_INTERVAL = 15;
+
 let activated = 0;
 let total_activations = 0;
 let number_of_zero_cascades = 0;  
@@ -43,7 +46,6 @@ function setup() {
 
   pixelDensity(4);
   strokeWeight(2)
-  frameRate(15);
 
   set_params();
   initialise_palette();
@@ -59,6 +61,7 @@ function draw() {
   
   translate(BW, BW)
   
+
   catalyst.process();
 
   activated = 0;

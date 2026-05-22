@@ -1,6 +1,8 @@
 const THRESHOLD = 0.25;
+
 let ACTIVE = 1;
 let INACTIVE = 0; 
+
 
 class Agent {
   constructor(node) {
@@ -19,23 +21,20 @@ class Agent {
     this.neighbours = [];
     this.colour = palette.colours[this.bin] || palette.blank;;
     this.value = 0;
-  }
-
-  colourize() {
-    this.colour = (this.state == 0 || this.bin < 0) ? palette.blank : palette.colours[this.bin];
+    this.time = 0;
   }
 
   update(){
     if(debug) { return; }
+    
     this.observe();
     this.contagion();
-    this.colourize();
+    this.fade();
   }
 
   contagion() {
-    if(this.state > INACTIVE) { return }
-    if(this.upper_class) { return } 
-    
+    if(!this.update_required()) { return }
+
     this.previous_state = this.state;
 
     if (this.threshold_passed()) {
@@ -52,8 +51,7 @@ class Agent {
 
   // How many neighbours are active?
   observe(){
-    if(this.state > INACTIVE) { return }
-    if(this.upper_class) { return } 
+    if(!this.update_required()) { return }
 
     let sum = 0;
     let total_weight = 0;
@@ -68,6 +66,14 @@ class Agent {
     }
 
     this.value = sum / total_weight;
+  }
+
+  update_required(){
+    if(t % UPDATE_INTERVAL != 0) { return false }
+    if(this.state > INACTIVE) { return false }
+    if(this.upper_class) { return false } 
+
+    return true
   }
 
   state_changed() {
@@ -97,10 +103,23 @@ class Agent {
     return abs(a_area - b_area) > 1000;
   }
 
+  
+  fade() {
+    if(this.state > INACTIVE && this.time < FADE_TIME) {
+      this.time++;
+    }
+    
+    if(this.state == INACTIVE && this.time > 0) {
+      this.time--;
+    }
+  }
+
   draw(){
     if (!this.oblong) { return }
-    if(this.colour) {  fill(this.colour); }
-
+    let colour = blank;
+    if(this.bin >= 0 && this.time > 0) { colour = color(palette.colours[this.bin]); }
+    if(this.time > 0 && this.time <= FADE_TIME) { colour = lerpColor(blank, colour, this.time / FADE_TIME); }
+    fill(colour);
     this.oblong.draw();
   }
 }

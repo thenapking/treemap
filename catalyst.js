@@ -36,6 +36,8 @@ class Catalyst {
   }
 
   update() {
+    if(t % UPDATE_INTERVAL !=0) { return; }
+    
     this.current.update();
     this.set_largest();
   }

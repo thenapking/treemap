@@ -54,6 +54,7 @@ function nearest_agent(v){
   return nearest;
 }
 
+let blank;
 function initialise_palette(){
   palette_names = Object.keys(palettes);
   palette_name = random(palette_names);
@@ -63,6 +64,7 @@ function initialise_palette(){
   console.log("Palette: " + palette_name);
 
   // frameRate(10);
+  blank = color(palette.blank);
 
   stroke(palette.pen);
   noFill();
