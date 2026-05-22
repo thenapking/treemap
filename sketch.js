@@ -31,6 +31,7 @@ let activated = 0;
 let total_activations = 0;
 let number_of_zero_cascades = 0;  
 let total_agent_weight = 0;
+let simulation_stopped = false;
 
 
 let agents = [];
@@ -65,14 +66,21 @@ function draw() {
   catalyst.process();
 
   activated = 0;
+  animation_in_progess = 0;
   
   for (let agent of agents) {
     agent.update();
     agent.draw();
     if(agent.state > 0) { activated++; }
+    if(agent.time > 0 && agent.time < FADE_TIME) { animation_in_progess++; }
   }
 
-  t++;
+  if(simulation_stopped && animation_in_progess == 0) {
+    console.log("Simulation stopped, animations complete.");
+    noLoop();
+  } else {
+    t++;
+  }
 }
 
 function draw_hatched(){

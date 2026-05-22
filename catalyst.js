@@ -9,6 +9,7 @@ class Catalyst {
 
   process() {
     if (debug) return;
+    if(simulation_stopped) { return; }
 
     if (this.ending()) {
       this.finish();
@@ -18,7 +19,6 @@ class Catalyst {
     }
 
     if (this.storm_the_palace()) {
-      
       this.stop();
     }
   }
@@ -37,7 +37,7 @@ class Catalyst {
 
   update() {
     if(t % UPDATE_INTERVAL !=0) { return; }
-    
+
     this.current.update();
     this.set_largest();
   }
@@ -84,17 +84,16 @@ class Catalyst {
     return (!this.active() && this.duration() > 0);
   }
 
+  // the catalyst typically fails when there are no more agents to activate
   storm_the_palace() {
-    // the catalyst typically fails when there are no more agents to activate
     return (number_of_zero_cascades > 100 || total_activations > TOTAL_ACTIVATIONS || this.failed);
   }
 
   stop() {
-    console.log("Stopping simulation.");
     console.log("Total activations: " + total_activations);
     if(this.largest_cascade != undefined) { console.log("Largest cascade: " + largest_cascade.total_activated); }
     console.log("Stopping simulation.");
-    noLoop();
+    simulation_stopped = true;
   }
 
   revolution_is_young() {
