@@ -22,6 +22,7 @@ class Agent {
     this.colour = palette.colours[this.bin] || palette.blank;;
     this.value = 0;
     this.time = 0;
+    this.catalyst = false;
   }
 
   update(){
@@ -85,7 +86,7 @@ class Agent {
   }
 
   yearning_for_revolution(){
-    return !this.upper_class && !this.threshold_passed() && this.state == INACTIVE;
+    return !this.upper_class && !this.threshold_passed() && this.state == INACTIVE && !this.catalyst;
   }
 
   in_different_class(other) {
@@ -103,7 +104,6 @@ class Agent {
     return abs(a_area - b_area) > 1000;
   }
 
-  
   fade() {
     if(this.state > INACTIVE && this.time < FADE_TIME) {
       this.time++;

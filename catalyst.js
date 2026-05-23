@@ -51,7 +51,7 @@ class Catalyst {
   }
 
   abort() {
-    console.log("Cascade too small, reverting.");
+    console.log("Cops beat back the protest.");
     this.current.abort();
     number_of_zero_cascades++;
   }

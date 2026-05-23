@@ -33,6 +33,7 @@ class Cascade {
     }
     
     agent.state = ACTIVE;
+    agent.catalyst = true;
     this.agents.push(agent);
     this.activated++;
     for(let neighbour of agent.neighbours) {
